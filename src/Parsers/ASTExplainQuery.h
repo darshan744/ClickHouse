@@ -115,7 +115,7 @@ protected:
     void formatQueryImpl(WriteBuffer & ostr, const FormatSettings & settings, FormatState & state, FormatStateStacked frame) const override
     {
         ostr << toString(kind);
-
+delim
         if (ast_settings)
         {
             ostr << ' ';
@@ -151,3 +151,4 @@ private:
 };
 
 }
+delim

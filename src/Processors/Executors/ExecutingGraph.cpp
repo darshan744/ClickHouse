@@ -1,9 +1,12 @@
 #include <Processors/Executors/ExecutingGraph.h>
+#include <Common/Logger.h>
 #include <Common/Stopwatch.h>
 #include <Common/CurrentThread.h>
 
 #include <shared_mutex>
 #include <stack>
+
+#include <Common/logger_useful.h>
 
 
 namespace DB
@@ -22,13 +25,16 @@ ExecutingGraph::ExecutingGraph(std::shared_ptr<Processors> processors_, bool pro
     nodes.reserve(num_processors);
     source_processors.reserve(num_processors);
 
+    LOG_TRACE(getLogger("Executing Graph") , "Adding {} processors" ,num_processors);
+    
+
     /// Create nodes.
     for (uint64_t node = 0; node < num_processors; ++node)
     {
         IProcessor * proc = processors->at(node).get();
         processors_map[proc] = node;
         nodes.emplace_back(std::make_unique<Node>(proc, node));
-
+        LOG_TRACE(getLogger("Executing Graph"), "Processor {} added" , proc->getName());
         bool is_source = proc->getInputs().empty();
         source_processors.emplace_back(is_source);
     }
@@ -65,6 +71,7 @@ bool ExecutingGraph::addEdges(uint64_t node)
     auto & inputs = from->getInputs();
     auto from_input = nodes[node]->back_edges.size();
 
+    // for source from_input would be zero
     if (from_input < inputs.size())
     {
         was_edge_added = true;
@@ -81,7 +88,7 @@ bool ExecutingGraph::addEdges(uint64_t node)
 
     /// Add direct edges from output ports.
     auto & outputs = from->getOutputs();
-    auto from_output = nodes[node]->direct_edges.size();
+    auto from_output = nodes[node]->direct_edges.size(); // inital zero
 
     if (from_output < outputs.size())
     {
@@ -185,6 +192,16 @@ ExecutingGraph::UpdateNodeStatus ExecutingGraph::expandPipeline(boost::container
     return UpdateNodeStatus::Done;
 }
 
+
+void printExecutionGraphNodeInTheQueue(ExecutingGraph::Queue queue) {
+    while(!queue.empty()) {
+        auto * element = queue.front();
+        queue.pop();
+        LOG_TRACE(getLogger("Executing Graph Queue"),"{} Added to the queue" , element->processor->getName());
+    }
+}
+
+// In this function the leaf nodes are alone used for updating their status
 void ExecutingGraph::initializeExecution(Queue & queue, Queue & async_queue)
 {
     std::stack<uint64_t> stack;
@@ -193,7 +210,7 @@ void ExecutingGraph::initializeExecution(Queue & queue, Queue & async_queue)
     uint64_t num_processors = nodes.size();
     for (uint64_t proc = 0; proc < num_processors; ++proc)
     {
-        if (nodes[proc]->direct_edges.empty())
+        if (nodes[proc]->direct_edges.empty()/* When output edges are empty*/)
         {
             stack.push(proc);
             /// do not lock mutex, as this function is executed in single thread
@@ -206,11 +223,18 @@ void ExecutingGraph::initializeExecution(Queue & queue, Queue & async_queue)
         uint64_t proc = stack.top();
         stack.pop();
 
+        // for every leaf node it propagates to the source node
+        // and updates the node's state.
+        // After this the Source node like MergeTreeSelect() would only be in Ready state and be added to the queue
+        // Rest are in Idle state.
         updateNode(proc, queue, async_queue);
     }
+    // printExecutionGraphNodeInTheQueue(queue);
 }
 
-
+// This function traverses the given node and to their source 
+// Changes their state and updates the queue for adding the node to execution
+// this spreads the state to the connected nodes and prepares them for the next task
 ExecutingGraph::UpdateNodeStatus ExecutingGraph::updateNode(uint64_t pid, Queue & queue, Queue & async_queue)
 {
     boost::container::devector<Edge *> updated_edges;
@@ -228,17 +252,17 @@ ExecutingGraph::UpdateNodeStatus ExecutingGraph::updateNode(uint64_t pid, Queue 
             auto * edge = updated_edges.front();
             updated_edges.pop_front();
 
-            /// Here we have ownership on edge, but node can be concurrently accessed.
-
+            /// Points to which node got affected.
             auto & node = *nodes[edge->to];
-
+            
+            /// Here we have ownership on edge, but node can be concurrently accessed.
             std::unique_lock lock(node.status_mutex);
 
             ExecutingGraph::ExecStatus status = node.status;
 
             if (status != ExecutingGraph::ExecStatus::Finished)
             {
-                if (edge->backward)
+                if (edge->backward/* Update the producer's output port */)
                     node.updated_output_ports.push_back(edge->output_port_number);
                 else
                     node.updated_input_ports.push_back(edge->input_port_number);

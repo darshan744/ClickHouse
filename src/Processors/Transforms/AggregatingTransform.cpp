@@ -8,13 +8,16 @@
 #include <Processors/Transforms/SquashingTransform.h>
 #include <QueryPipeline/Pipe.h>
 #include <base/types.h>
+#include <Common/Logger.h>
 #include <Common/formatReadable.h>
 #include <Common/logger_useful.h>
+#include <base/getThreadId.h>
 
 #include <Processors/QueryPlan/Optimizations/RuntimeDataflowStatistics.h>
 
 #include <algorithm>
 #include <atomic>
+
 
 namespace ProfileEvents
 {
@@ -56,13 +59,17 @@ namespace
         return agg_info.get();
     }
 
+    
     /// Reads chunks from file in native format. Provide chunks with aggregation info.
     class SourceFromNativeStream final : public ISource
     {
+    private:
+        String fileName;
     public:
-        explicit SourceFromNativeStream(SharedHeader header, TemporaryBlockStreamReaderHolder tmp_stream_)
-            : ISource(header)
-            , tmp_stream(std::move(tmp_stream_))
+        explicit SourceFromNativeStream(SharedHeader header, TemporaryBlockStreamReaderHolder tmp_stream_ , const String & fileName_ = "")
+            : ISource(header),
+            fileName(fileName_),
+            tmp_stream(std::move(tmp_stream_))
         {}
 
         String getName() const override { return "SourceFromNativeStream"; }
@@ -78,6 +85,7 @@ namespace
                 tmp_stream.reset();
                 return {};
             }
+            LOG_TRACE(getLogger("Bucket Logger") , "{} : Partition : {} from {}" , getThreadId(), block.info.bucket_num , fileName);
             return convertToChunk(block);
         }
 
@@ -1038,14 +1046,14 @@ void AggregatingTransform::initGenerate()
         for (auto & aggregator : *params->aggregator_list_ptr)
         {
             auto new_tmp_files = aggregator.detachTemporaryData();
-            num_streams += tmp_files.size();
+            num_streams += new_tmp_files.size();
 
             for (auto & tmp_stream : new_tmp_files)
             {
                 auto stat = tmp_stream.finishWriting();
                 compressed_size += stat.compressed_size;
                 uncompressed_size += stat.uncompressed_size;
-                pipes.emplace_back(Pipe(std::make_unique<SourceFromNativeStream>(std::make_shared<const Block>(tmp_stream.getHeader()), tmp_stream.getReadStream())));
+                pipes.emplace_back(Pipe(std::make_unique<SourceFromNativeStream>(std::make_shared<const Block>(tmp_stream.getHeader()), tmp_stream.getReadStream() , tmp_stream.getHolder()->describeFilePath())));
             }
 
             tmp_files.splice(tmp_files.end(), new_tmp_files);

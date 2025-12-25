@@ -329,6 +329,7 @@ struct CPUHelper
     }
 };
 
+// For everythread it is executed in its own context
 void PipelineExecutor::executeStepImpl(size_t thread_num, IAcquiredSlot * cpu_slot, std::atomic_bool * yield_flag)
 {
 #ifndef NDEBUG
@@ -342,8 +343,13 @@ void PipelineExecutor::executeStepImpl(size_t thread_num, IAcquiredSlot * cpu_sl
 
     while (!tasks.isFinished() && !yield)
     {
-        /// First, find any processor to execute.
+        /// First, find any processor to execute. (i.e) find the task
         while (!tasks.isFinished() && !context.hasTask())
+            // this would try to get one task
+            // if the task was not found in the taskqueue of its own queue
+            // it then it would go to sleep
+            // if a task is found it tries to wake up other threads incase 
+            // some are sleeping
             tasks.tryGetTask(context);
 
         while (!tasks.isFinished() && context.hasTask() && !yield)
@@ -368,12 +374,14 @@ void PipelineExecutor::executeStepImpl(size_t thread_num, IAcquiredSlot * cpu_sl
                 Queue async_queue;
 
                 /// Prepare processor after execution.
+                // adds tasks to the passed queue
                 auto status = graph->updateNode(context.getProcessorID(), queue, async_queue);
                 if (status == ExecutingGraph::UpdateNodeStatus::Exception)
                     cancel(ExecutionStatus::Exception);
 
                 /// Push other tasks to global queue.
                 if (status == ExecutingGraph::UpdateNodeStatus::Done)
+                    // adds the tasks from the queue to the tsak_queue of this thread
                     spawn_status = tasks.pushTasks(queue, async_queue, context);
             }
 
@@ -535,6 +543,9 @@ void PipelineExecutor::initializeExecution(size_t num_threads, bool concurrency_
     /// Starting from 1 instead of 0 is to tackle the single thread scenario, where no upscale() will
     /// be invoked but actually 1 thread used.
     tasks.init(num_threads, 1, cpu_slots, profile_processors, trace_processors, read_progress_callback.get());
+    // fill adds all the queue to the first thread only
+    // note use_threads is 1 as in above call
+    // the upscale would increase the use_threads as we go
     tasks.fill(queue, async_queue);
 
     if (num_threads > 1)

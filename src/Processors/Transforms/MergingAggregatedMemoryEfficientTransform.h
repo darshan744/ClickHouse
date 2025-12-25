@@ -9,7 +9,6 @@
 #include <Processors/Transforms/AggregatingTransform.h>
 #include <Common/HashTable/HashSet.h>
 
-#include <unordered_set>
 
 namespace DB
 {
@@ -73,9 +72,11 @@ protected:
     void work() override;
 
 private:
+    /// Number of files that were written during spill 
     size_t num_inputs;
     AggregatingTransformParamsPtr params;
 
+    /// Will have length of number of files
     std::vector<Int32> last_bucket_number; /// Last bucket read from each input.
 
     /// See `ConvertingAggregatedToChunksTransform` to learn about sending buckets out of order.

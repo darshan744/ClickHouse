@@ -216,6 +216,9 @@ void ExecutorTasks::init(size_t num_threads_, size_t use_threads_, const SlotAll
     }
 }
 
+// This function splits the tasks to each thread
+// If the queue contains tasks greater than the available threads.
+// It is rotated from the begining again.
 void ExecutorTasks::fill(Queue & queue, [[maybe_unused]] Queue & async_queue)
 {
     std::lock_guard lock(mutex);

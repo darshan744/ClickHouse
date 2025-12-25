@@ -4,6 +4,7 @@
 #include <IO/NullWriteBuffer.h>
 #include <base/defines.h>
 #include <Poco/Util/Application.h>
+#include <Common/ProfileEvents.h>
 
 #include <Processors/QueryPlan/Optimizations/RuntimeDataflowStatistics.h>
 
@@ -57,6 +58,7 @@ namespace ProfileEvents
     extern const Event OverflowBreak;
     extern const Event OverflowAny;
     extern const Event AggregationOptimizedEqualRangesOfKeys;
+    extern const Event AggregatedBlocks;
 }
 
 namespace CurrentMetrics
@@ -1735,6 +1737,8 @@ bool Aggregator::executeOnBlock(Columns columns,
     /// `result` will destroy the states of aggregate functions in the destructor
     result.aggregator = this;
 
+    ProfileEvents::increment(ProfileEvents::AggregatedBlocks);
+    
     /// How to perform the aggregation?
     if (result.empty())
     {

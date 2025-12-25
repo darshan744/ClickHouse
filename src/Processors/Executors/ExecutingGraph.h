@@ -33,6 +33,8 @@ public:
 
         /// Processor id this edge points to.
         /// It is processor with output_port for direct edge or processor with input_port for backward.
+        // if output edge then it points to consumer
+        // if input edge then it points to the producer
         uint64_t to = std::numeric_limits<uint64_t>::max();
         bool backward;
         /// Port numbers. They are same for direct and backward edges.
@@ -81,7 +83,10 @@ public:
         uint64_t processors_id = 0;
 
         /// Direct edges are for output ports, back edges are for input ports.
+        // For a single node back = input node , direct = output node
+        // Output edges
         Edges direct_edges;
+        // input edges
         Edges back_edges;
 
         /// Current status. It is accessed concurrently, using mutex.

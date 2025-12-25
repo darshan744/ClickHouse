@@ -327,6 +327,7 @@
     M(ExternalSortMerge, "Number of times temporary files were merged for sorting in external memory.", ValueType::Number) \
     M(ExternalSortCompressedBytes, "Number of compressed bytes written for sorting in external memory.", ValueType::Bytes) \
     M(ExternalSortUncompressedBytes, "Amount of data (uncompressed, before compression) written for sorting in external memory.", ValueType::Bytes) \
+    M(AggregatedBlocks , "Amount of blocks read during aggregation" , ValueType::Number)\
     M(ExternalAggregationWritePart, "Number of times a temporary file was written to disk for aggregation in external memory.", ValueType::Number) \
     M(ExternalAggregationMerge, "Number of times temporary files were merged for aggregation in external memory.", ValueType::Number) \
     M(ExternalAggregationCompressedBytes, "Number of bytes written to disk for aggregation in external memory.", ValueType::Bytes) \
